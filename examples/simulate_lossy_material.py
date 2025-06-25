@@ -16,7 +16,9 @@ def irradiance(
     z,
 ):
     """
-    Time-averaged power-flux density ⟨S⟩·k̂ = I(z) of an attenuating plane wave.
+    Analytical calculation of time-averaged power-flux density ⟨S⟩·k̂ of an
+    attenuating plane wave propagating in a lossy medium given by real
+    permittivity, real permeability, and real conductivity.
 
     Parameters
     ----------
@@ -41,7 +43,8 @@ def irradiance(
     omega = 2.0 * jnp.pi * freq
     eps = fdtdx.constants.eps0 * eps_r
     mu = fdtdx.constants.mu0 * mu_r
-    eta = jnp.sqrt(mu / eps)
+    #eta = jnp.sqrt(mu / eps)
+    eta = jnp.sqrt((1j * omega * mu) / (electric_conductivity + (1j * omega * eps)))
     ratio = electric_conductivity / (omega * eps)
 
     root = jnp.sqrt(1.0 + ratio**2)
@@ -93,7 +96,7 @@ def main():
     constraints = []
 
     volume = fdtdx.SimulationVolume(
-        partial_real_shape=(12.0e-3, 12e-3, 48e-3),
+        partial_real_shape=(12e-3, 12e-3, 36e-3),
         material=fdtdx.Material(  # Background material
             permittivity=eps_r,
             permeability=mu_r,
@@ -161,27 +164,6 @@ def main():
         ]
     )
 
-    video_energy_detector = fdtdx.EnergyDetector(
-        name="Energy Video",
-        as_slices=True,
-        switch=fdtdx.OnOffSwitch(interval=20),
-        # if set to positive integer, makes plotting much faster, but can also
-        # cause instabilities
-        num_video_workers=8,
-    )
-    constraints.extend(video_energy_detector.same_position_and_size(volume))
-
-    backwards_video_energy_detector = fdtdx.EnergyDetector(
-        name="Backwards Energy Video",
-        as_slices=True,
-        switch=fdtdx.OnOffSwitch(interval=20),
-        inverse=True,
-        # if set to positive integer, makes plotting much faster, but can also
-        # cause instabilities
-        num_video_workers=8,
-    )
-    constraints.extend(backwards_video_energy_detector.same_position_and_size(volume))
-
     key, subkey = jax.random.split(key)
     objects, arrays, params, config, _ = fdtdx.place_objects(
         volume=volume,
@@ -198,10 +180,6 @@ def main():
         fdtdx.plot_setup(
             config=config,
             objects=objects,
-            exclude_object_list=[
-                backwards_video_energy_detector,
-                video_energy_detector,
-            ],
         ),
     )
 
