@@ -7,23 +7,29 @@ from loguru import logger
 import fdtdx
 
 
-def irradiance(E0_0, eta, alpha, z):
+def irradiance(
+    E0_0,
+    freq,
+    electric_conductivity,
+    eps_r,
+    mu_r,
+    z,
+):
     """
     Time-averaged power-flux density ⟨S⟩·k̂ = I(z) of an attenuating plane wave.
 
     Parameters
     ----------
     E0_0 : complex or float
-        Complex electric-field amplitude at z = 0  (peak value, V/m).
-    eta : float
-        Intrinsic impedance of the propagation medium (Ω).
-        •  vacuum → η ≈ 376.730 313 668 Ω
-        •  air (20 °C) ≈ 377 Ω
-        •  seawater, tissue, etc. → use |√(μ/ε)| at the frequency of interest
-    alpha : float
-        Power-attenuation coefficient α [Np m⁻¹].
-        •  α = 0 → loss-free medium (I independent of z)
-        •  α > 0 → exponential decay  e^{-2αz}
+        Complex electric-field amplitude at z = 0 (peak value, V/m).
+    freq : float
+        Frequency of plane wave
+    electric_conductivity : array_like or float
+        Conductivity as used in the vector form of Ohm's law. [S/m].
+    eps_r : float, optional
+        Relative permittivity ε_r (default 1.0).
+    mu_r : float, optional
+        Relative permeability μ_r (default 1.0).
     z : array_like or scalar
         Distance(s) from the reference plane (m), measured **along k̂**.
 
@@ -32,30 +38,16 @@ def irradiance(E0_0, eta, alpha, z):
     I : ndarray or scalar
         Irradiance I(z) = |E₀(z)|² / (2 η)  (W m⁻²).
     """
-    E0_z = E0_0 * jnp.exp(-alpha * z)          # field amplitude vs. z
+    omega = 2.0 * jnp.pi * freq
+    eps = fdtdx.constants.eps0 * eps_r
+    mu = fdtdx.constants.mu0 * mu_r
+    eta = jnp.sqrt(mu / eps)
+    ratio = electric_conductivity / (omega * eps)
+
+    root = jnp.sqrt(1.0 + ratio**2)
+    alpha = omega * jnp.sqrt(mu * eps / 2.0) * jnp.sqrt(root - 1.0)
+    E0_z = E0_0 * jnp.exp(-alpha * z)  # field amplitude vs. z
     return jnp.square(jnp.abs(E0_z)) / (2.0 * eta)
-
-
-def poynting_vector(E0_0_vec, eta, alpha, z, k_hat=jnp.array([0.0, 0.0, 1.0])):
-    """
-    Full time-averaged Poynting vector ⟨S⟩ for an arbitrarily polarized plane wave.
-
-    Parameters
-    ----------
-    E0_0_vec : array_like, shape (3,)
-        Complex electric-field vector amplitude at z = 0 (V/m).
-        Must satisfy k̂ · E₀ = 0  for a true plane wave.
-    k_hat : array_like, shape (3,), optional
-        Unit propagation vector (defaults to +ẑ).
-
-    Returns
-    -------
-    S_vec : ndarray
-        ⟨S⟩(z)(W m⁻²) in 3-vector form, pointing along k̂.
-    """
-    E0_z_vec = jnp.asarray(E0_0_vec) * jnp.exp(-alpha * z)
-    I = jnp.square(jnp.abs(E0_z_vec)).sum(axis=-1) / (2.0 * eta)
-    return I[..., None] * jnp.asarray(k_hat)
 
 
 def main():
@@ -64,10 +56,18 @@ def main():
     )
     key = jax.random.PRNGKey(seed=42)
 
+    # Field/wave properties
     wavelength = 7.4e-3
     period = fdtdx.constants.wavelength_to_period(wavelength)
     frequency = 1 / period
-    field_initial_amp = 1.
+    field_initial_amp = 1.0
+    # Material properties
+    # Relative permittivity (real)
+    eps_r = 2.
+    # Relative permeability (real)
+    mu_r = 1.
+    # Conductivity (real)
+    sigma = 5.
 
     config = fdtdx.SimulationConfig(
         time=100e-11,
@@ -95,16 +95,44 @@ def main():
     volume = fdtdx.SimulationVolume(
         partial_real_shape=(12.0e-3, 12e-3, 48e-3),
         material=fdtdx.Material(  # Background material
-            electric_conductivity=2.0, # In Siemens/meter
-        )
+            permittivity=eps_r,
+            permeability=mu_r,
+            electric_conductivity=sigma,
+        ),
     )
-
-    periodic = True
-    if periodic:
-        bound_cfg = fdtdx.BoundaryConfig.from_uniform_bound(boundary_type="periodic")
-    else:
-        bound_cfg = fdtdx.BoundaryConfig.from_uniform_bound(thickness=10, boundary_type="pml")
-    bound_dict, c_list = fdtdx.boundary_objects_from_config(bound_cfg, volume)
+    # Set boundary conditions
+    # Periodic boundary conditions on min X, max X, min Y and max Y
+    # Perfectly Matched Layer (PML) on min Z and max Z.
+    thickness = 10  # In grid units
+    kappa_start = 1.0
+    kappa_end = 1.5
+    bound_cfg = fdtdx.BoundaryConfig(
+        boundary_type_minx="periodic",
+        boundary_type_maxx="periodic",
+        boundary_type_miny="periodic",
+        boundary_type_maxy="periodic",
+        boundary_type_minz="pml",
+        boundary_type_maxz="pml",
+        thickness_grid_minx=thickness,
+        thickness_grid_maxx=thickness,
+        thickness_grid_miny=thickness,
+        thickness_grid_maxy=thickness,
+        thickness_grid_minz=thickness,
+        thickness_grid_maxz=thickness,
+        kappa_start_minx=kappa_start,
+        kappa_end_minx=kappa_end,
+        kappa_start_maxx=kappa_start,
+        kappa_end_maxx=kappa_end,
+        kappa_start_miny=kappa_start,
+        kappa_end_miny=kappa_end,
+        kappa_start_maxy=kappa_start,
+        kappa_end_maxy=kappa_end,
+        kappa_start_minz=kappa_start,
+        kappa_end_minz=kappa_end,
+        kappa_start_maxz=kappa_start,
+        kappa_end_maxz=kappa_end,
+    )
+    _, c_list = fdtdx.boundary_objects_from_config(bound_cfg, volume)
     constraints.extend(c_list)
 
     source = fdtdx.UniformPlaneSource(
@@ -136,9 +164,10 @@ def main():
     video_energy_detector = fdtdx.EnergyDetector(
         name="Energy Video",
         as_slices=True,
-        switch=fdtdx.OnOffSwitch(interval=3),
+        switch=fdtdx.OnOffSwitch(interval=10),
         exact_interpolation=True,
-        # if set to positive integer, makes plotting much faster, but can also cause instabilities
+        # if set to positive integer, makes plotting much faster, but can also
+        # cause instabilities
         num_video_workers=8,
     )
     constraints.extend(video_energy_detector.same_position_and_size(volume))
@@ -146,10 +175,11 @@ def main():
     backwards_video_energy_detector = fdtdx.EnergyDetector(
         name="Backwards Energy Video",
         as_slices=True,
-        switch=fdtdx.OnOffSwitch(interval=3),
+        switch=fdtdx.OnOffSwitch(interval=10),
         inverse=True,
         exact_interpolation=True,
-        # if set to positive integer, makes plotting much faster, but can also cause instabilities
+        # if set to positive integer, makes plotting much faster, but can also
+        # cause instabilities
         num_video_workers=8,
     )
     constraints.extend(backwards_video_energy_detector.same_position_and_size(volume))
