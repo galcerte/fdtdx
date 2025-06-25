@@ -164,7 +164,7 @@ def main():
     video_energy_detector = fdtdx.EnergyDetector(
         name="Energy Video",
         as_slices=True,
-        switch=fdtdx.OnOffSwitch(interval=10),
+        switch=fdtdx.OnOffSwitch(interval=20),
         # if set to positive integer, makes plotting much faster, but can also
         # cause instabilities
         num_video_workers=8,
@@ -174,7 +174,7 @@ def main():
     backwards_video_energy_detector = fdtdx.EnergyDetector(
         name="Backwards Energy Video",
         as_slices=True,
-        switch=fdtdx.OnOffSwitch(interval=10),
+        switch=fdtdx.OnOffSwitch(interval=20),
         inverse=True,
         # if set to positive integer, makes plotting much faster, but can also
         # cause instabilities
