@@ -165,7 +165,6 @@ def main():
         name="Energy Video",
         as_slices=True,
         switch=fdtdx.OnOffSwitch(interval=10),
-        exact_interpolation=True,
         # if set to positive integer, makes plotting much faster, but can also
         # cause instabilities
         num_video_workers=8,
@@ -177,7 +176,6 @@ def main():
         as_slices=True,
         switch=fdtdx.OnOffSwitch(interval=10),
         inverse=True,
-        exact_interpolation=True,
         # if set to positive integer, makes plotting much faster, but can also
         # cause instabilities
         num_video_workers=8,
